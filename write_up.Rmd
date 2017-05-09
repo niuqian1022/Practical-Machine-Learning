@@ -1,0 +1,108 @@
+---
+title: 'Practical Machine learning: Course Project'
+author: "Sophia Qian Niu"
+date: "May 8, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Methods
+## Data laoding and cleaning-up
+
+- Read the data, fill the blank cell with 'NA'
+- Get the measurments columns
+- Get rid of the 'NA' columns
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(ggplot2)
+library(plyr)
+library(gbm)
+```
+
+```{r, cache = TRUE}
+data<-read.csv("pml-training.csv", stringsAsFactors = F, 
+               na.strings=c("","NA"))
+trainSet<-data[,c(8:160)]
+trainSet<-trainSet[ , ! apply(trainSet , 2 , function(x) any(is.na(x)) )]
+trainSet$classe<-as.factor(trainSet$classe)
+#split dataset into trainning and testing sets
+set.seed(100)
+inTrain <- createDataPartition(trainSet$classe, p = 0.75, list = FALSE)
+training <- trainSet[ inTrain,]
+testing <- trainSet[-inTrain,]
+dim(training)
+```
+
+## Model to use
+Gradient boosting produces a prediction model in the form of an collection of weak prediction models (typically decision trees). It builds the model in a stage-wise fashion like other boosting methods do, and it generalizes them by allowing optimization of an arbitrary differentiable loss function.
+
+Stochastic Gradient Boosting using 'gbm' was used in this problem. The main parameters need to consider is interaction.depth (maximum number of predictors that have interactions), n.trees (number of iterations), shrinkage (learning rate), as well as cross validation methods.  
+
+##  Model fit
+- Preprocessing
+Principle component analysis (PCA) is applied to reduce feature dimension (from 53 features to about 20 PCs), and I retain PCs explaining 90% of variation in the dataset. This preprocess is specified in arguments of trainControl (preProcOptions) and train (preProc). 
+
+- Parameters
+I set n.trees = 150, learning rate  = 0.1, and interaction.depth = 3 as a trade-off between model complexity (running time) and fit performance. These parameters are specified using function expand.grid(). In the model fit, information specified in expand.grid(), and trainControl() are passed to the train() function.
+
+
+- Cross validation
+I have used repeated (n = 10) 10-fold (k = 10) cross validation to get estimates of model performance using the training set.
+
+
+
+```{r, cache = TRUE}
+#Fig a gbm model using PCAs (95% of variation explained)
+set.seed(123)
+gbmGrid <-  expand.grid(interaction.depth = 3, 
+                        n.trees = 200, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 10)
+
+trCont <- trainControl(preProcOptions = list(thresh = 0.90),
+                       method = "repeatedcv",
+                       repeats = 10,
+                       number = 10)                       
+PCFit <- train(classe ~.,
+               data = training, 
+               method ="gbm",
+               preProc = "pca",
+               trControl = trCont,
+               verbose = FALSE,
+               tuneGrid = gbmGrid)
+
+print(PCFit)
+
+```
+
+# Results
+## Relevance of the PCs
+As the figure below has shown, the relevant influence of the 20 PCs in the classification problem ranges from 1.9% to 9.7%. 
+```{r, cache = TRUE}
+summary(PCFit)
+```
+
+## Out of sample error
+The overall accuracy measured from testing dataset is 0.82 (95% CI : 0.81 -- 0.83), and Kappa statistics : 0.77.  The accuracy of model predictions on the five classes ranks as follows: Class E > A > B > D > C.
+
+```{r, cache = TRUE}
+#Out of sample error 
+pred<-predict(PCFit, testing)
+confusionMatrix(testing$classe, pred)
+```
+
+# Summary
+In this machine learning classification problem, measurements for body movements are used to predict the quality of barbell pushing performed by volunteers. I use principle components to reduce the feature dimension.  A gradient boosting model is applied, and the model was trained with a dataset of 14700 samples (75%), and tested on about 4900 samples. The overall accuracy measured from testing dataset is 0.82. The accuracy of model predictions on the five classes ranks as: Class E > A > B > D > C.
+
+# References
+1. Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+http://groupware.les.inf.puc-rio.br/har#ixzz4gcHOftCQ
+
+2. The caret package:
+https://topepo.github.io/caret/measuring-performance.html
+
+3. Wikipedia page for Gradient_boosting:
+https://en.wikipedia.org/wiki/Gradient_boosting
